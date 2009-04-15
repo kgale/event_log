@@ -1,0 +1,90 @@
+= event_log Flexible, simple event logging.
+
+== Synopsis
+
+  # In Rails, clear the EventLog data between requests.
+  Module ActionController
+    class Dispatcher
+      def before_each_request
+        EventLog.reset
+      end
+    end
+  end
+
+  # Optional, but very handy in Rails: Always push the controller and action into the logged data.
+  class ApplicationController < ActionController::Base
+    before_filter :set_event_log_identifier
+    def set_event_log_identifier
+      EventLog.identifier = "#{params[:controller]}:#{params[:action]}"
+      EventLog.set_data(:controller => params[:controller], :action => params[:action])
+    end
+  end
+
+  # Set common attributes
+  EventLog.set_data(:fruit => params[:fruit], :quantity => 1)
+
+  # Log the correct event
+  if params[:do] == 'pick'
+    EventLog.log_event(:pick)
+  elsif params[:do] == 'drop'
+    EventLog.log_event(:drop)
+  end
+
+  # This line will appear in your rails log using RAILS_DEFAULT_LOGGER
+  # (use EventLog.logger= to change, if needed)
+  # EventLog [pick] timestamp:2009-04-15T02:20:44+00:00|fruit:apple|event:pick|quantity:1
+
+== Using message queues for asynchronous insertion of events into databse.
+
+=== Setup
+
+  # Provide EventLogger with an object that provides enqueue() and dequeue() methods 
+  EventLog.queue = QUEUE.queue_instance(:logged_events)
+
+=== Logging
+
+Logging continues using EventLog.log_event(:event_name) like normal.  All logged
+events are enqueued using the EventLog.queue.enqueue(logged_event_data_structure).
+
+=== Database Setup
+
+  class CreateLoggedPicks < ActiveRecord::Migration
+    def self.up
+      create_table :logged_picks do |t|
+        t.datetime  :timestamp
+        t.integer   :quantity
+        t.string    :fruit
+      end
+    end
+  
+    def self.down
+      drop_table :logged_picks
+    end
+  end
+
+=== Importing Information
+
+EventLog::Import take events from the queue and looks for tables called logged_#{event.pluralize}.
+In our example, it would look for a table called logged_picks.  If the table doesn't exist, the
+event is ignored.  This allows developers to put in logging for debugging (which will still be
+conventionally logged using the logger), but not have these events inserted into the database.
+
+=== Import (Manual)
+
+  importer = EventLog::Import.new
+  while true do  # Or whatever dequeuing loop
+    event    = queue_object.dequeue
+    importer.buffered_insert(event)
+  end
+
+=== Import (Automatic)
+
+  importer = EventLog::Import.new
+  importer.import_from_queue(queue_object)
+
+== Authors
+Kris Gale (kgale at yammer-inc dot com)
+
+== Release Information
+Released under the MIT license.
+
